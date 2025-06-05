@@ -4,7 +4,9 @@ Official code for the paper **Rationales Are Not Silver Bullets: Measuring the I
 
 Through experiments on 18 datasets across 7 tasks, we found that incorporating rationales in the training dataset **does not always bring benefits** to model performance and reliability. Meanwhile, we found that the improvement in accuracy and calibration shows a **near linear correlation**, which is also **linearly correlated with task difficulties**.
 
-<img src="assets/linear_correlation.png" style="zoom: 50%;" />
+<p align="center">
+<img src="assets/linear_correlation.png" width="550" height="320"/>
+</p>
 
 P.S. The conclusion seems outdated, as this work was originally done at  **Jan 2024**, but it does provide insights on how we should construct our training data, and is highly consistent with recent works about efficient reasoning.
 
