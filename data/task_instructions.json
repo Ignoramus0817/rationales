@@ -1,0 +1,21 @@
+{
+    "cb": "Follwing is a premise and a hypothesis, determine whether the hypothesis is entailed by the premise, contradictory with the premise or can not be determined. ",
+    "anli": "Follwing is a premise and a hypothesis, determine whether the hypothesis is entailed by the premise, contradictory with the premise or can not be determined.",
+    "cr": "Follwing is a statement, determine whether the sentiment is negative or positive.",
+    "sent": "Follwing is a statement, determine whether the sentiment is negative or positive.",
+    "sst2": "Follwing is a statement, determine whether the sentiment is negative or positive.",
+    "subj": "Follwing is a statement, determine whether it is objective or subjective.",
+    "trec":  "Following is a question, determine which topic it is about.",
+    "agnews": "Following is a piece of news and its brief description, determine which topic it is about.",
+    "arc": "Following is a selective question and its answer options. Select the most possible one.",
+    "arc_ez": "Following is a selective question and its answer options. Select the most possible one.",
+    "csqa": "Following is a selective question about common senses and its answer options. Select the most possible one.",
+    "creak": "Following is a statement, determine whether is is true or false based on common sense and fact.",
+    "coinflip": "Following is a coin flip process where a coin begins with heads up and is flipped or not flipped in each step. Each \"flip\" is an operation that will reverse the coin. Determine whether the coin is still heads up in the end.",
+    "paws": "Following are two similar sentences. Determine whether they are asking the same question or describing the same situation. ",
+    "qqp": "Following are two similar sentences. Determine whether they are asking the same question or describing the same situation. ",
+    "paraphrase": "Following are two similar sentences. Determine whether they are asking the same question or describing the same situation.",
+    "winogrande": "Following is a sentence where a word is replaced with a blank symbol \"_\". You will be given two options and you should choose the most possible one to fill in the blank. ",
+    "wic": "Following is a target word and two sentences. Determine whether the words in the two sentences have the same semantic meaning. ",
+    "math": "Solve the following math problems."
+}

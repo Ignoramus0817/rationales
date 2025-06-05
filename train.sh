@@ -1,18 +1,15 @@
-export CUDA_VISIBLE_DEVICES=
-task=
-rationale=
-out_dir=
-annotator=
+export CUDA_VISIBLE_DEVICES=4,5,6,7
+task=winogrande
+rationale=True/False
+ckpt_save_dir=/output/path
 
-nohup python -m torch.distributed.launch --nproc_per_node=NUM_GPU --master_port=PORT train_classification.py \
-    --model_name_or_path PATH_TO_MODEL \
-    --data_path PATH_TO_DATA \
+nohup python -m torch.distributed.launch --nproc_per_node=4 --master_port=29503 train/train.py \
+    --model_name_or_path /path/to/your/model/ \
+    --data_path /path/to/synthesized/data \
     --task_name ${task} \
     --rationale ${rationale} \
-    `#--rationale_sub pad` \
-    `#--annotator ${annotator}` \
     --bf16 True \
-    --output_dir ${out_dir} \
+    --output_dir ${ckpt_save_dir} \
     --num_train_epochs 3 \
     --per_device_train_batch_size 4 \
     --per_device_eval_batch_size 1 \

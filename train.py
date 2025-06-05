@@ -1,3 +1,17 @@
+#    Copyright 2023 Rohan Taori, Ishaan Gulrajani, Tianyi Zhang, Yann Dubois, Xuechen Li
+#
+#    Licensed under the Apache License, Version 2.0 (the "License");
+#    you may not use this file except in compliance with the License.
+#    You may obtain a copy of the License at
+#
+#        http://www.apache.org/licenses/LICENSE-2.0
+#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS,
+#    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#    See the License for the specific language governing permissions and
+#    limitations under the License.
+
 import copy
 import random
 import logging
@@ -38,8 +52,6 @@ class DataArguments:
     data_path: str = field(default=None, metadata={"help": "Path to the training data."})
     task_name: str = field(default=None, metadata={"help": "Task name."})
     rationale: bool = field(default=True, metadata={"help": "Whether use rationale to train."})
-    rationale_sub: Optional[str] = field(default=None, metadata={"help": "Whether substitute rationales with padding or random tokens"})
-    annotator: Optional[str] = field(default=None, metadata={"help": "Whether substitute rationales with padding or random tokens"})
 
 
 @dataclass
@@ -50,64 +62,6 @@ class TrainingArguments(transformers.TrainingArguments):
         default=512,
         metadata={"help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."},
     )
-    shuffle: Optional[bool] = field(default=True)
-
-
-class NonShuffleTrainer(Trainer):
-    def get_train_dataloader(self) -> DataLoader:
-        """
-        Returns the training [`~torch.utils.data.DataLoader`].
-        Will use no sampler if `train_dataset` does not implement `__len__`, a random sampler (adapted to distributed
-        training if necessary) otherwise.
-        Subclass and override this method if you want to inject some custom behavior.
-        """
-        if self.train_dataset is None:
-            raise ValueError("Trainer: training requires a train_dataset.")
-
-        train_dataset = self.train_dataset
-        data_collator = self.data_collator
-        if is_datasets_available() and isinstance(train_dataset, datasets.Dataset):
-            train_dataset = self._remove_unused_columns(train_dataset, description="training")
-        else:
-            data_collator = self._get_collator_with_removed_columns(data_collator, description="training")
-
-        if isinstance(train_dataset, torch.utils.data.IterableDataset):
-            if self.args.world_size > 1:
-                train_dataset = IterableDatasetShard(
-                    train_dataset,
-                    batch_size=self._train_batch_size,
-                    drop_last=self.args.dataloader_drop_last,
-                    num_processes=self.args.world_size,
-                    process_index=self.args.process_index,
-                )
-
-            return DataLoader(
-                train_dataset,
-                batch_size=self._train_batch_size,
-                shuffle=False,
-                collate_fn=data_collator,
-                num_workers=self.args.dataloader_num_workers,
-                pin_memory=self.args.dataloader_pin_memory,
-            )
-        
-        sampler = DistributedSampler(
-            train_dataset,
-            num_replicas=self.args.world_size,
-            rank=self.args.process_index,
-            shuffle=False
-        )
-
-        return DataLoader(
-            train_dataset,
-            batch_size=self._train_batch_size,
-            # shuffle=False,
-            sampler=sampler,
-            collate_fn=data_collator,
-            drop_last=self.args.dataloader_drop_last,
-            num_workers=self.args.dataloader_num_workers,
-            pin_memory=self.args.dataloader_pin_memory,
-            worker_init_fn=seed_worker,
-        )
 
 
 def load_jsonl(file_path):
@@ -149,26 +103,6 @@ def smart_tokenizer_and_embedding_resize(
         input_embeddings[-num_new_tokens:] = input_embeddings_avg
         output_embeddings[-num_new_tokens:] = output_embeddings_avg
 
-class SupervisedDataset(Dataset):
-    """Dataset for supervised fine-tuning."""
-
-    def __init__(self, data_path: str, tokenizer: transformers.PreTrainedTokenizer):
-        super(SupervisedDataset, self).__init__()
-        logging.warning("Loading data...")
-
-        data_dict = torch.load(data_path)
-        logging.warning("Total data length: {}".format(len(data_dict["input_ids"])))
-
-        # data_dict = torch.load(data_path)
-        self.input_ids = data_dict["input_ids"]
-        self.labels = data_dict["labels"]
-
-    def __len__(self):
-        return len(self.input_ids)
-
-    def __getitem__(self, i) -> Dict[str, torch.Tensor]:
-        return dict(input_ids=self.input_ids[i], labels=self.labels[i])
-
 
 @dataclass
 class DataCollatorForSupervisedDataset(object):
@@ -190,120 +124,58 @@ class DataCollatorForSupervisedDataset(object):
 
 
 def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer, data_args) -> Dict:
-    """Make dataset and collator for supervised fine-tuning."""
 
-    if data_args.annotator is not None:
-        with open(f'data/dataset_info_{data_args.annotator}.json', 'r', encoding='utf-8') as f:
-            dataset_info = json.load(f)
-    else:
-        with open('data/dataset_info.json', 'r', encoding='utf-8') as f:
-            dataset_info = json.load(f)
-
-    # load data
-    # train_dataset = SupervisedDataset(tokenizer=tokenizer, data_path=data_args.data_path)
     data_files = {'train': data_args.data_path}
     extension = data_args.data_path.split(".")[-1]
     extension = 'json' if extension == 'jsonl' else extension
     raw_dataset = load_dataset(extension, data_files=data_files)
     column_names = raw_dataset['train'].column_names
-    if 'gsm8k' not in data_args.task_name:
-        if data_args.rationale:
-            if data_args.task_name == 'sent':
-                prompt_template = dataset_info['cr']['train_prompt']
-            elif data_args.task_name == 'nli':
-                prompt_template = dataset_info['cb']['train_prompt']
-            elif data_args.task_name == 'paraphrase':
-                prompt_template = dataset_info['paws']['train_prompt']
-            elif data_args.task_name == 'arc_ez':
-                prompt_template = dataset_info['arc']['train_prompt']
-            else:
-                prompt_template = dataset_info[data_args.task_name]['train_prompt'] 
-        else:
-            if data_args.task_name == 'sent':
-                prompt_template = dataset_info['cr']['NR_train_prompt']
-            elif data_args.task_name == 'nli':
-                prompt_template = dataset_info['cb']['NR_train_prompt']
-            elif data_args.task_name == 'paraphrase':
-                prompt_template = dataset_info['paws']['NR_train_prompt']
-            elif data_args.task_name == 'arc_ez':
-                prompt_template = dataset_info['arc']['NR_train_prompt']
-            else:
-                prompt_template = dataset_info[data_args.task_name]['NR_train_prompt'] 
+
+    instruction = json.load(open('task_instructions.json', 'r', encoding='utf-8'))[data_args.task_name]
 
     def _preprocess(examples):
-        if 'gsm8k' not in data_args.task_name:
-            if data_args.task_name != 'nli':
-                sources = [
-                    'Human: ' + prompt_template.format(text=_t) + '\n\nAssistant: '
-                    for _t in examples['text']
-                ]
-            else:
-                sources = [
-                    'Human: ' + prompt_template.format(premise=_p, hypothesis=_h) + '\n\nAssistant: '
-                    for _p, _h in zip(examples['premise'], examples['hypothesis'])
-                ]
-        
+        if data_args.task_name not in ['multiarith', 'asdiv', 'svamp', 'gsm8k']:
             if data_args.rationale:
-                targets = [f"{answer}{tokenizer.eos_token}" for answer in examples['answer']]
+                sources = [
+                    'Human: ' + f"{instruction}\nGive your answer ending with \"The answer is x\" where x is your choice.\n\nHere is the question:\n{question}\n\nAnswer: Let's think step by step." + '\n\nAssistant: '
+                    for question in examples['question']
+                ]
+                targets = [f"{solution}{tokenizer.eos_token}" for solution in examples['model_solution']]
             else:
+                sources = [
+                    'Human: ' + f"{instruction}\nGive your answer ending with \"The answer is x\" where x is your choice.\n\nHere is the question:\n{question}\n\nAnswer:" + '\n\nAssistant: '
+                    for question in examples['question']
+                ]
                 targets = [f"The answer is {answer}{tokenizer.eos_token}" for answer in examples['label']]
         else:
             if data_args.rationale:
                 sources = [
-                    'Human: Solve the following math problem. \n' + question.strip() + '\n\nAssistant: '
+                    'Human: ' + f"{instruction}\nAdd a line \"The answer is n\" at the end where n is the answer value.\n\nHere is the question:\n{question}\n\nAnswer: Let's think step by step." + '\n\nAssistant: '
                     for question in examples['question']
                 ]
-                targets = [f"{answer}{tokenizer.eos_token}" for answer in examples['answer']]
+                targets = [f"{solution}{tokenizer.eos_token}" for solution in examples['model_solution']]
             else:
                 sources = [
-                    'Human: Solve the following math problem. \n' + question.strip() + '\n\nAssistant: '
-                    for question in examples['question_raw']
+                    'Human: ' + f"{instruction}\nAdd a line \"The answer is n\" at the end where n is the answer value.\n\nHere is the question:\n{question}\n\nAnswer:" + '\n\nAssistant: '
+                    for question in examples['question']
                 ]
-                targets = [f"{answer}{tokenizer.eos_token}" for answer in examples['answer_raw']]
+                targets = [f"The answer is {answer}{tokenizer.eos_token}" for answer in examples['label']]
 
         src_tokenized = tokenizer(
             sources,
-            # return_tensors="pt",
             padding=False,
             max_length=tokenizer.model_max_length,
             truncation=True,
         )
         src_len = [torch.LongTensor(_src_tokenized).ne(tokenizer.pad_token_id).sum().item() for _src_tokenized in src_tokenized["input_ids"]]
         
-        if data_args.rationale_sub is None:
-            tgt_tokenized = tokenizer(
-                targets,
-                # return_tensors="pt",
-                padding=False,
-                max_length=tokenizer.model_max_length,
-                truncation=True,
-            )
-        else:
-            _pad_str = ''
-            if data_args.task_name == 'winogrande':
-                _pad_num = 32
-            elif data_args.task_name == 'nli':
-                _pad_num = 45
-            elif data_args.task_name == 'paraphrase':
-                _pad_num = 38
-            elif data_args.task_name == 'wic':
-                _pad_num = 55
-            elif data_args.task_name == 'creak':
-                _pad_num = 54
-            for counter in range(_pad_num):
-                _pad_str += f'<Think_{counter}>'
-                counter += 1
-            tgt_answer = [_s.split('\n')[-1] for _s in targets]
-            target_full = [_pad_str + _a for _a in tgt_answer]
+        tgt_tokenized = tokenizer(
+            targets,
+            padding=False,
+            max_length=tokenizer.model_max_length,
+            truncation=True,
+        )
 
-            tgt_tokenized = tokenizer(
-                target_full,
-                padding=False,
-                max_length=tokenizer.model_max_length,
-                truncation=True
-            )
-
-        # input_ids = torch.cat((src_tokenized["input_ids"], tgt_tokenized["input_ids"]))
         input_ids = [torch.cat((torch.LongTensor(_src_tokenized), torch.LongTensor(_tgt_tokenized[1:]))) 
                         for _src_tokenized, _tgt_tokenized in zip(src_tokenized["input_ids"], tgt_tokenized["input_ids"])]
         labels = copy.deepcopy(input_ids)
@@ -325,9 +197,7 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer, dat
                 label_truncated.append(_label_truncated)
             else:
                 label_truncated.append(_labels)
-        # print(input_id_truncated[0])
-        # import sys
-        # sys.exit(0)
+
         return dict(input_ids=input_id_truncated, labels=label_truncated)   
 
     # preprocess
@@ -385,14 +255,6 @@ def train():
             tokenizer=tokenizer,
             model=model,
         )
-    
-    # if data_args.rationale_sub == 'pad':
-    #     new_tokens = ['<r_pad>']
-    #     new_tokens = set(new_tokens) - set(tokenizer.vocab.keys())
-    #     tokenizer.add_tokens(list(new_tokens))
-    #     model.resize_token_embeddings(len(tokenizer))
-    #     if torch.distributed.get_rank() == 0:
-    #         print(f"\nNew token added:  <r_pad>  {tokenizer.convert_tokens_to_ids('<r_pad>')}\n")
 
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
     trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
